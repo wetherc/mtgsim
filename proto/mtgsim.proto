@@ -1,0 +1,36 @@
+syntax = "proto3";
+
+package mtgsim;
+
+option go_package = "mtgsim/pkg/api";
+
+// MtgSim service defines the RPCs for interacting with the game engine.
+service MtgSim {
+  // We can define RPCs here later, for example:
+  // rpc GetGameState(GetGameStateRequest) returns (GameState);
+  // rpc PerformAction(Action) returns (PerformActionResponse);
+}
+
+// ActionType represents the type of an action a player can take.
+enum ActionType {
+  ACTION_TYPE_UNSPECIFIED = 0;
+  PASS_PRIORITY = 1;
+  CAST_SPELL = 2;
+}
+
+// Action represents a single action that a player can perform.
+// This is what a client would send to the server.
+message Action {
+  ActionType type = 1;
+
+  // The payload will vary based on the action type.
+  oneof payload {
+    CastSpellPayload cast_spell = 2;
+  }
+}
+
+// Payload for casting a spell.
+message CastSpellPayload {
+  string card_id = 1; // UUIDs are represented as strings
+  repeated string targets = 2;
+}

@@ -4,6 +4,7 @@ package game
 import (
 	"errors"
 	"fmt"
+	"mtgsim/pkg/api"
 	"mtgsim/pkg/card"
 	"mtgsim/pkg/mana"
 	"mtgsim/pkg/player"
@@ -91,6 +92,32 @@ func (g *Game) CheckState() {
 	// After resolution or advancing the turn, reset passes and give priority to the active player.
 	g.consecutivePasses = 0
 	g.PriorityPlayer = g.ActivePlayer
+}
+
+// PerformAction is the main entry point for a player to perform an action.
+func (g *Game) PerformAction(playerID int, action *api.Action) error {
+	if g.PriorityPlayer.ID != playerID {
+		return fmt.Errorf("player %d does not have priority", playerID)
+	}
+
+	switch action.Type {
+	case api.ActionType_PASS_PRIORITY:
+		g.PassPriority()
+	default:
+		return fmt.Errorf("unsupported action type: %s", action.Type)
+	}
+
+	// After any action, the game state should be checked.
+	g.CheckState()
+
+	return nil
+}
+
+// GetValidTargets returns a list of valid targets for a given card.
+// This is a placeholder for the complex targeting logic to be implemented.
+func (g *Game) GetValidTargets(c *card.Card) []*card.Card {
+	// For now, no cards have targets.
+	return []*card.Card{}
 }
 
 // resolve handles the effect of a spell resolving.
