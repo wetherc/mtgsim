@@ -11,8 +11,8 @@ const (
 	Red
 	Green
 	Colorless
-	// numManaTypes is the total number of mana types.
-	numManaTypes
+	// NumManaTypes is the total number of mana types.
+	NumManaTypes
 )
 
 // String returns the string representation of a mana type.
@@ -37,12 +37,12 @@ func (t Type) String() string {
 
 // Pool represents a collection of mana.
 type Pool struct {
-	Amounts [numManaTypes]int
+	Amounts [NumManaTypes]int
 }
 
 // Add adds mana of a given type to the pool.
 func (p *Pool) Add(manaType Type, amount int) {
-	if manaType < numManaTypes {
+	if manaType < NumManaTypes {
 		p.Amounts[manaType] += amount
 	}
 }
@@ -56,15 +56,18 @@ func (p *Pool) Total() int {
 	return total
 }
 
+// XValuePlaceholder is used in a mana.Cost's Generic field to indicate an 'X' cost.
+const XValuePlaceholder int = 0
+
 // Cost represents the mana cost of a card or ability.
 type Cost struct {
-	Colored [numManaTypes - 1]int
+	Colored [NumManaTypes - 1]int
 	Generic int
 }
 
 // Payment represents the mana selected to pay a cost.
 type Payment struct {
-	Amounts [numManaTypes]int
+	Amounts [NumManaTypes]int
 }
 
 // CanPay checks if the pool has enough mana to pay the cost.
