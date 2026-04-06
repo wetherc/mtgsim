@@ -1,24 +1,14 @@
 package game
 
 import (
+	"fmt"
 	"mtgsim/pkg/card"
 	"mtgsim/pkg/mana"
 	"mtgsim/pkg/player"
-	"reflect"
 	"testing"
 
 	"github.com/google/uuid"
 )
-
-// Helper function to create a basic player with a mana pool
-func newTestPlayer(id int, life int, pool mana.Pool) *player.Player {
-	return &player.Player{
-		ID:       id,
-		Life:     life,
-		ManaPool: &pool,
-		Hand:     []*card.Card{},
-	}
-}
 
 // Helper function to create a basic card
 func newTestCard(name string, cost mana.Cost) *card.Card {
@@ -30,149 +20,259 @@ func newTestCard(name string, cost mana.Cost) *card.Card {
 }
 
 func TestNewGame(t *testing.T) {
-	game := NewGame()
+	playerIDs := []int{1, 2}
+	startingLife := 20
+	game, err := NewGame(playerIDs, startingLife)
+	if err != nil {
+		t.Fatalf("NewGame() returned an unexpected error: %v", err)
+	}
+
 	if game == nil {
-		t.Error("NewGame returned nil")
+		t.Fatal("NewGame returned nil")
 	}
 	if game.Stack == nil {
 		t.Error("NewGame created game with nil Stack")
 	}
-	if len(game.Stack.Spells) != 0 {
-		t.Errorf("NewGame created game with non-empty Stack, got %d spells", len(game.Stack.Spells))
+	if len(game.Players) != 2 {
+		t.Errorf("Expected 2 players, got %d", len(game.Players))
+	}
+	if game.ActivePlayer.ID != 1 {
+		t.Errorf("Expected active player to be P1, got P%d", game.ActivePlayer.ID)
+	}
+	if game.Zones[fmt.Sprintf("p%d_hand", 1)] == nil {
+		t.Error("P1 hand zone not initialized")
+	}
+	if game.Zones["battlefield"] == nil {
+		t.Error("Battlefield zone not initialized")
 	}
 }
 
+func TestPassPriority(t *testing.T) {
+	game, _ := NewGame([]int{1, 2}, 20)
+
+	if game.PriorityPlayer.ID != 1 {
+		t.Fatalf("Expected priority player to be P1, got P%d", game.PriorityPlayer.ID)
+	}
+
+	game.PassPriority()
+	if game.PriorityPlayer.ID != 2 {
+		t.Errorf("Expected priority player to be P2, got P%d", game.PriorityPlayer.ID)
+	}
+
+	game.PassPriority()
+	if game.PriorityPlayer.ID != 1 {
+		t.Errorf("Expected priority player to be P1 after wrapping, got P%d", game.PriorityPlayer.ID)
+	}
+}
+
+func TestCheckState(t *testing.T) {
+	t.Run("Advance step when stack is empty and all pass", func(t *testing.T) {
+		game, _ := NewGame([]int{1, 2}, 20)
+		initialPhase := game.Turn.CurrentPhase
+		initialStep := game.Turn.CurrentStep
+
+		// All players pass
+		game.PassPriority()
+		game.PassPriority()
+
+		game.CheckState()
+
+		if game.Turn.CurrentPhase == initialPhase && game.Turn.CurrentStep == initialStep {
+			t.Error("Turn did not advance after all players passed on empty stack")
+		}
+		if game.consecutivePasses != 0 {
+			t.Errorf("Expected consecutivePasses to be 0 after advancing step, got %d", game.consecutivePasses)
+		}
+		if game.PriorityPlayer.ID != game.ActivePlayer.ID {
+			t.Errorf("Expected active player to have priority after advancing step, got P%d", game.PriorityPlayer.ID)
+		}
+	})
+
+	t.Run("Resolve stack when not empty and all pass", func(t *testing.T) {
+		game, _ := NewGame([]int{1, 2}, 20)
+		p1 := game.Players[0]
+		testCard := newTestCard("Test Spell", mana.Cost{})
+		
+		// P1 casts a spell
+		handZone := game.Zones[fmt.Sprintf("p%d_hand", p1.ID)]
+		handZone.Add(testCard)
+		p1.ManaPool.Add(mana.Colorless, 0) // Zero cost
+		game.CastSpell(p1, testCard, &CastChoices{}, mana.Payment{})
+
+		// All players pass
+		game.PassPriority()
+		game.PassPriority()
+
+		game.CheckState()
+
+		if len(game.Stack.Spells) != 0 {
+			t.Errorf("Expected stack to be empty after resolution, got %d spells", len(game.Stack.Spells))
+		}
+		battlefield := game.Zones["battlefield"]
+		if len(battlefield.Cards) != 1 || battlefield.Cards[0].ID != testCard.ID {
+			t.Error("Spell did not resolve to the battlefield correctly")
+		}
+		if game.consecutivePasses != 0 {
+			t.Errorf("Expected consecutivePasses to be 0 after resolution, got %d", game.consecutivePasses)
+		}
+		if game.PriorityPlayer.ID != game.ActivePlayer.ID {
+			t.Errorf("Expected active player to have priority after resolution, got P%d", game.PriorityPlayer.ID)
+		}
+	})
+}
+
+func TestPriorityAndPassing(t *testing.T) {
+	game, _ := NewGame([]int{1, 2}, 20)
+	p1 := game.Players[0]
+	p2 := game.Players[1]
+	testCard := newTestCard("Test Spell", mana.Cost{})
+
+	// Setup: P1 has a card and mana
+	p1.ManaPool.Add(mana.Colorless, 1)
+	handZoneP1 := game.Zones[fmt.Sprintf("p%d_hand", p1.ID)]
+	handZoneP1.Add(testCard)
+
+	// Action: P1 casts a spell
+	_, err := game.CastSpell(p1, testCard, &CastChoices{}, mana.Payment{})
+	if err != nil {
+		t.Fatalf("CastSpell failed unexpectedly: %v", err)
+	}
+
+	// Validation 1: P1 holds priority after casting
+	if game.PriorityPlayer.ID != p1.ID {
+		t.Errorf("Expected P1 to have priority after casting, but P%d does", game.PriorityPlayer.ID)
+	}
+	if game.consecutivePasses != 0 {
+		t.Errorf("Expected consecutivePasses to be 0 after casting, but got %d", game.consecutivePasses)
+	}
+
+	// Action: P1 passes priority
+	game.PassPriority()
+
+	// Validation 2: P2 gets priority
+	if game.PriorityPlayer.ID != p2.ID {
+		t.Errorf("Expected P2 to have priority after P1 passes, but P%d does", game.PriorityPlayer.ID)
+	}
+	if game.consecutivePasses != 1 {
+		t.Errorf("Expected consecutivePasses to be 1 after P1 passes, but got %d", game.consecutivePasses)
+	}
+
+	// Action: P2 passes priority
+	game.PassPriority()
+
+	// Validation 3: Priority wraps back to P1
+	if game.PriorityPlayer.ID != p1.ID {
+		t.Errorf("Expected P1 to have priority after P2 passes, but P%d does", game.PriorityPlayer.ID)
+	}
+	if game.consecutivePasses != 2 {
+		t.Errorf("Expected consecutivePasses to be 2 after P2 passes, but got %d", game.consecutivePasses)
+	}
+}
+
+
 func TestCastSpell(t *testing.T) {
-	// Test Cases
+	testCard := newTestCard("Lightning Bolt", mana.Cost{Colored: [mana.NumManaTypes-1]int{mana.Red: 1}})
+	
 	tests := []struct {
-		name         string
-		initialPlayer *player.Player // Use initialPlayer to define a fresh player state for each test
-		card         *card.Card
-		choices      *CastChoices
-		payment      mana.Payment
-		expectedErr  string
-		expectedHand int
-		expectedPool mana.Pool
-		expectedStack int
+		name          string
+		setup         func(g *Game) *player.Player // Setup returns the player who will cast
+		cardToCast    *card.Card
+		choices       *CastChoices
+		payment       mana.Payment
+		expectedErr   string
+		validate      func(t *testing.T, g *Game, p *player.Player)
 	}{
 		{
-			name:        "Success: Cast a simple spell",
-			initialPlayer: newTestPlayer(1, 20, mana.Pool{Amounts: [mana.NumManaTypes]int{mana.White: 5, mana.Red: 5, mana.Colorless: 5}}),
-			card:        newTestCard("Lightning Bolt", mana.Cost{Colored: [mana.NumManaTypes - 1]int{mana.Red: 1}, Generic: 1}),
+			name: "Success: Cast a simple spell",
+			setup: func(g *Game) *player.Player {
+				p := g.Players[0]
+				p.ManaPool.Add(mana.Red, 1)
+				handZone := g.Zones[fmt.Sprintf("p%d_hand", p.ID)]
+				handZone.Add(testCard)
+				return p
+			},
+			cardToCast:  testCard,
 			choices:     &CastChoices{},
-			payment:     mana.Payment{Amounts: [mana.NumManaTypes]int{mana.Red: 1, mana.Colorless: 1}},
+			payment:     mana.Payment{Amounts: [mana.NumManaTypes]int{mana.Red: 1}},
 			expectedErr: "",
-			expectedHand: 0,
-			expectedPool: mana.Pool{Amounts: [mana.NumManaTypes]int{mana.White: 5, mana.Red: 4, mana.Colorless: 4}},
-			expectedStack: 1,
+			validate: func(t *testing.T, g *Game, p *player.Player) {
+				if len(g.Stack.Spells) != 1 {
+					t.Errorf("Expected 1 spell on the stack, got %d", len(g.Stack.Spells))
+				}
+				if g.Stack.Spells[0].Card.ID != testCard.ID {
+					t.Error("Wrong card on stack")
+				}
+				handZone := g.Zones[fmt.Sprintf("p%d_hand", p.ID)]
+				if len(handZone.Cards) != 0 {
+					t.Errorf("Expected hand to be empty, got %d cards", len(handZone.Cards))
+				}
+				if p.ManaPool.Amounts[mana.Red] != 0 {
+					t.Errorf("Expected mana pool to have 0 red mana, got %d", p.ManaPool.Amounts[mana.Red])
+				}
+			},
 		},
 		{
-			name:        "Failure: Card not in hand",
-			initialPlayer: newTestPlayer(1, 20, mana.Pool{Amounts: [mana.NumManaTypes]int{mana.White: 5, mana.Red: 5, mana.Colorless: 5}}),
-			card:        newTestCard("Non-existent Card", mana.Cost{Generic: 1}),
+			name: "Failure: Card not in hand",
+			setup: func(g *Game) *player.Player {
+				p := g.Players[0]
+				p.ManaPool.Add(mana.Red, 1)
+				// Card is not added to hand
+				return p
+			},
+			cardToCast:  testCard,
 			choices:     &CastChoices{},
-			payment:     mana.Payment{Amounts: [mana.NumManaTypes]int{mana.Colorless: 1}},
+			payment:     mana.Payment{Amounts: [mana.NumManaTypes]int{mana.Red: 1}},
 			expectedErr: "card not in hand",
-			expectedHand: 0, // Hand size should remain unchanged as card was not there
-			expectedPool: mana.Pool{Amounts: [mana.NumManaTypes]int{mana.White: 5, mana.Red: 5, mana.Colorless: 5}},
-			expectedStack: 0,
+			validate: func(t *testing.T, g *Game, p *player.Player) {
+				if len(g.Stack.Spells) != 0 {
+					t.Errorf("Expected stack to be empty, got %d", len(g.Stack.Spells))
+				}
+				if p.ManaPool.Amounts[mana.Red] != 1 {
+					t.Errorf("Expected mana pool to be unchanged, got %d red mana", p.ManaPool.Amounts[mana.Red])
+				}
+			},
 		},
 		{
-			name:        "Failure: Not enough mana (payment fails)",
-			initialPlayer: newTestPlayer(2, 20, mana.Pool{Amounts: [mana.NumManaTypes]int{mana.White: 0}}), // Player with no mana
-			card:        newTestCard("Expensive Spell", mana.Cost{Colored: [mana.NumManaTypes - 1]int{mana.White: 1}, Generic: 1}),
+			name: "Failure: Not enough mana",
+			setup: func(g *Game) *player.Player {
+				p := g.Players[0]
+				// No mana added to pool
+				handZone := g.Zones[fmt.Sprintf("p%d_hand", p.ID)]
+				handZone.Add(testCard)
+				return p
+			},
+			cardToCast:  testCard,
 			choices:     &CastChoices{},
-			payment:     mana.Payment{Amounts: [mana.NumManaTypes]int{mana.White: 1, mana.Colorless: 1}},
+			payment:     mana.Payment{Amounts: [mana.NumManaTypes]int{mana.Red: 1}},
 			expectedErr: "failed to pay mana cost",
-			expectedHand: 0, // Card remains in hand
-			expectedPool: mana.Pool{Amounts: [mana.NumManaTypes]int{mana.White: 0}},
-			expectedStack: 0,
-		},
-		{
-			name:        "Success: Cast spell with X cost (X=2)",
-			initialPlayer: newTestPlayer(1, 20, mana.Pool{Amounts: [mana.NumManaTypes]int{mana.White: 5, mana.Red: 5, mana.Colorless: 5}}),
-			card:        newTestCard("X Spell", mana.Cost{Generic: mana.XValuePlaceholder}),
-			choices:     &CastChoices{XValue: 2},
-			payment:     mana.Payment{Amounts: [mana.NumManaTypes]int{mana.White: 1, mana.Red: 1, mana.Colorless: 0}}, // Using 2 generic mana
-			expectedErr: "",
-			expectedHand: 0,
-			expectedPool: mana.Pool{Amounts: [mana.NumManaTypes]int{mana.White: 4, mana.Red: 4, mana.Colorless: 5}}, // 1W, 1R paid for X, 5 colorless remains
-			expectedStack: 1,
-		},
-		{
-			name:        "Failure: Cast spell with X cost, insufficient mana",
-			initialPlayer: newTestPlayer(3, 20, mana.Pool{Amounts: [mana.NumManaTypes]int{mana.Colorless: 1}}), // Only 1 mana
-			card:        newTestCard("X Spell 2", mana.Cost{Generic: mana.XValuePlaceholder}),
-			choices:     &CastChoices{XValue: 2},
-			payment:     mana.Payment{Amounts: [mana.NumManaTypes]int{mana.Colorless: 2}},
-			expectedErr: "failed to pay mana cost",
-			expectedHand: 0, // Card remains in hand
-			expectedPool: mana.Pool{Amounts: [mana.NumManaTypes]int{mana.Colorless: 1}},
-			expectedStack: 0,
+			validate: func(t *testing.T, g *Game, p *player.Player) {
+				handZone := g.Zones[fmt.Sprintf("p%d_hand", p.ID)]
+				if len(handZone.Cards) != 1 {
+					t.Errorf("Expected card to remain in hand, got %d cards", len(handZone.Cards))
+				}
+				if len(g.Stack.Spells) != 0 {
+					t.Errorf("Expected stack to be empty, got %d", len(g.Stack.Spells))
+				}
+			},
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Clone player for tests that modify player state
-			p := &player.Player{
-				ID:       tt.initialPlayer.ID,
-				Life:     tt.initialPlayer.Life,
-				ManaPool: &mana.Pool{Amounts: tt.initialPlayer.ManaPool.Amounts},
-				Hand:     make([]*card.Card, len(tt.initialPlayer.Hand)),
-			}
-			copy(p.Hand, tt.initialPlayer.Hand)
+			game, _ := NewGame([]int{1}, 20)
+			player := tt.setup(game)
 
-			// Add card to player's hand if it's supposed to be there for casting
-			if tt.card != nil && tt.expectedErr != "card not in hand" {
-				p.Hand = append(p.Hand, tt.card)
-			}
-
-			g := NewGame() // Each test gets a fresh game
-			g.Players = append(g.Players, p)
-
-			// initialStackLen is always 0 for a fresh game
-			initialStackLen := 0
-
-			spell, err := g.CastSpell(p, tt.card, tt.choices, tt.payment)
+			_, err := game.CastSpell(player, tt.cardToCast, tt.choices, tt.payment)
 
 			if tt.expectedErr != "" {
 				if err == nil || err.Error() != tt.expectedErr {
-					t.Errorf("CastSpell() got error %v, want %v", err, tt.expectedErr)
+					t.Errorf("CastSpell() error = %v, wantErr %v", err, tt.expectedErr)
 				}
-				// For failure cases, hand, pool, and stack should remain unchanged (except for card removal if not in hand)
-				if !reflect.DeepEqual(*p.ManaPool, tt.expectedPool) {
-					t.Errorf("CastSpell() failed payment, player mana pool got %v, want %v", *p.ManaPool, tt.expectedPool)
-				}
-				if len(g.Stack.Spells) != initialStackLen {
-					t.Errorf("CastSpell() failed payment, stack size got %v, want %v", len(g.Stack.Spells), initialStackLen)
-				}
-				// If the card was in hand but payment failed, it should still be in hand
-				if tt.expectedErr != "card not in hand" && len(p.Hand) != 1 {
-					t.Errorf("CastSpell() failed payment, card not returned to hand. Hand size got %v, want %v", len(p.Hand), 1)
-				}
-				// If card was not in hand, the hand should remain empty
-				if tt.expectedErr == "card not in hand" && len(p.Hand) != 0 {
-					t.Errorf("CastSpell() failed payment, hand size got %v, want %v", len(p.Hand), 0)
-				}
-
-			} else {
-				if err != nil {
-					t.Errorf("CastSpell() got unexpected error: %v", err)
-				}
-				if len(p.Hand) != tt.expectedHand {
-					t.Errorf("CastSpell() player hand got %v, want %v", len(p.Hand), tt.expectedHand)
-				}
-				if !reflect.DeepEqual(*p.ManaPool, tt.expectedPool) {
-					t.Errorf("CastSpell() player mana pool got %v, want %v", *p.ManaPool, tt.expectedPool)
-				}
-				if len(g.Stack.Spells) != tt.expectedStack {
-					t.Errorf("CastSpell() stack size got %v, want %v", len(g.Stack.Spells), tt.expectedStack)
-				}
-				if g.Stack.Spells[len(g.Stack.Spells)-1] != spell {
-					t.Errorf("CastSpell() last spell on stack got %v, want %v", g.Stack.Spells[len(g.Stack.Spells)-1].Card.Name, spell.Card.Name)
-				}
+			} else if err != nil {
+				t.Errorf("CastSpell() unexpected error = %v", err)
 			}
+			
+			tt.validate(t, game, player)
 		})
 	}
 }

@@ -95,34 +95,33 @@ func (p *Pool) CanPay(cost Cost) bool {
 // Pay deducts the cost from the pool given a specific payment.
 // Returns true if payment was successful, false otherwise.
 func (p *Pool) Pay(cost Cost, payment Payment) bool {
-	// 1. Check if the payment covers the cost.
-	// a. Colored costs
-	for i, c := range cost.Colored {
-		if payment.Amounts[i] < c {
-			return false // Payment doesn't cover colored cost.
-		}
-	}
-	// b. Total cost
-	totalPayment := 0
-	for _, amount := range payment.Amounts {
-		totalPayment += amount
-	}
-	totalCost := cost.Generic
-	for _, c := range cost.Colored {
-		totalCost += c
-	}
-	if totalPayment != totalCost {
-		return false // Payment doesn't match total cost.
-	}
-
-	// 2. Check if the player has the mana for the payment.
+	// 1. Check if the player has enough mana in their pool for the chosen payment.
 	for i, amount := range payment.Amounts {
 		if p.Amounts[i] < amount {
 			return false // Not enough mana in the pool.
 		}
 	}
 
-	// 3. Deduct the payment from the pool.
+	// 2. Check if the payment covers the required colored costs.
+	totalColoredCost := 0
+	for i, c := range cost.Colored {
+		if payment.Amounts[i] < c {
+			return false // Payment doesn't provide enough of a specific colored mana.
+		}
+		totalColoredCost += c
+	}
+
+	// 3. Check if the total payment is sufficient for the total cost.
+	totalPayment := 0
+	for _, amount := range payment.Amounts {
+		totalPayment += amount
+	}
+
+	if totalPayment != (totalColoredCost + cost.Generic) {
+		return false // Total mana in payment does not match total cost.
+	}
+
+	// 4. Deduct the payment from the pool.
 	for i, amount := range payment.Amounts {
 		p.Amounts[i] -= amount
 	}

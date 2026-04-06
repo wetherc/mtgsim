@@ -2,7 +2,6 @@
 package player
 
 import (
-	"mtgsim/pkg/card"
 	"mtgsim/pkg/mana"
 )
 
@@ -11,6 +10,13 @@ type Player struct {
 	ID       int
 	Life     int
 	ManaPool *mana.Pool
-	Hand     []*card.Card
-	// other fields like library, graveyard will be added later.
+}
+
+// NewPlayer creates a new player with a given starting life total.
+func NewPlayer(id int, startingLife int) *Player {
+	return &Player{
+		ID:       id,
+		Life:     startingLife,
+		ManaPool: &mana.Pool{},
+	}
 }

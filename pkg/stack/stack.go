@@ -8,7 +8,8 @@ import (
 
 // Spell represents a card that has been cast and is currently on the stack.
 type Spell struct {
-	Card *card.Card
+	Card    *card.Card
+	CasterID int
 	// Choices made during casting
 	XValue      int
 	ChosenModes []string // Placeholder for specific modes chosen
@@ -35,6 +36,13 @@ func (s *Spell) DetermineTotalCost() *mana.Cost {
 // Stack represents the game's stack where spells and abilities await resolution.
 type Stack struct {
 	Spells []*Spell
+}
+
+// NewStack creates a new, empty stack.
+func NewStack() *Stack {
+	return &Stack{
+		Spells: []*Spell{},
+	}
 }
 
 // Push adds a spell to the top of the stack.
