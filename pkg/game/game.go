@@ -4,6 +4,7 @@ package game
 import (
 	"errors"
 	"mtgsim/pkg/card"
+	"mtgsim/pkg/mana"
 	"mtgsim/pkg/player"
 	"mtgsim/pkg/stack"
 	"mtgsim/pkg/turn"
@@ -30,10 +31,18 @@ func NewGame() *Game {
 	}
 }
 
-// InitiateCasting initiates the process of casting a spell.
-// It moves the card from the player's hand and creates a Spell object.
-// It does NOT yet handle cost calculation, payment, or putting the spell onto the stack.
-func (g *Game) InitiateCasting(player *player.Player, cardToCast *card.Card, choices *CastChoices) (*stack.Spell, error) {
+// PaySpellCost attempts to pay the mana cost of a spell.
+func (g *Game) PaySpellCost(player *player.Player, spell *stack.Spell, payment mana.Payment) error {
+	spell.DetermineTotalCost() // Ensure FinalCost is calculated
+
+	if !player.ManaPool.Pay(*spell.FinalCost, payment) {
+		return errors.New("failed to pay mana cost")
+	}
+	return nil
+}
+
+// CastSpell orchestrates the full process of casting a spell.
+func (g *Game) CastSpell(player *player.Player, cardToCast *card.Card, choices *CastChoices, payment mana.Payment) (*stack.Spell, error) {
 	// 1. Check if card is in hand.
 	cardInHand := false
 	cardIndex := -1
@@ -57,8 +66,20 @@ func (g *Game) InitiateCasting(player *player.Player, cardToCast *card.Card, cho
 		XValue:      choices.XValue,
 		ChosenModes: choices.ChosenModes,
 		Targets:     choices.Targets,
-		FinalCost:   cardToCast.ManaCost, // Initial cost, will be modified later
+		FinalCost:   cardToCast.ManaCost, // Initial cost, will be modified by DetermineTotalCost
 	}
+
+	// 4. Determine total cost.
+	spell.DetermineTotalCost()
+
+	// 5. Pay spell cost.
+	err := g.PaySpellCost(player, spell, payment)
+	if err != nil {
+		return nil, err
+	}
+
+	// 6. Put spell on stack.
+	g.Stack.Push(spell)
 
 	return spell, nil
 }

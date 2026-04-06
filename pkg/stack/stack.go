@@ -18,6 +18,20 @@ type Spell struct {
 	FinalCost *mana.Cost
 }
 
+// DetermineTotalCost calculates and sets the spell's final mana cost.
+func (s *Spell) DetermineTotalCost() *mana.Cost {
+	if s.Card.ManaCost == nil {
+		s.FinalCost = &mana.Cost{}
+		return s.FinalCost
+	}
+
+	calculatedCost := *s.Card.ManaCost // Make a copy
+	calculatedCost.Generic += s.XValue // Add XValue to generic cost
+
+	s.FinalCost = &calculatedCost
+	return s.FinalCost
+}
+
 // Stack represents the game's stack where spells and abilities await resolution.
 type Stack struct {
 	Spells []*Spell
