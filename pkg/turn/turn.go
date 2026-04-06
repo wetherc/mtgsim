@@ -38,4 +38,50 @@ type Turn struct {
 	CurrentPhase Phase
 	CurrentStep  Step
 	TurnNumber   int
+	states       []turnState
+	currentIndex int
+}
+
+type turnState struct {
+	phase Phase
+	step  Step
+}
+
+var turnOrder = []turnState{
+	{BeginningPhase, UntapStep},
+	{BeginningPhase, UpkeepStep},
+	{BeginningPhase, DrawStep},
+	{PreCombatMain, ""},
+	{CombatPhase, BeginCombatStep},
+	{CombatPhase, DeclareAttackersStep},
+	{CombatPhase, DeclareBlockersStep},
+	{CombatPhase, CombatDamageStep},
+	{CombatPhase, EndCombatStep},
+	{PostCombatMain, ""},
+	{EndPhase, EndStep},
+	{EndPhase, CleanupStep},
+}
+
+// NewTurn creates a new Turn manager.
+func NewTurn() *Turn {
+	return &Turn{
+		TurnNumber:   1,
+		CurrentPhase: turnOrder[0].phase,
+		CurrentStep:  turnOrder[0].step,
+		states:       turnOrder,
+		currentIndex: 0,
+	}
+}
+
+// Next advances the turn to the next state.
+func (t *Turn) Next() {
+	t.currentIndex++
+	if t.currentIndex >= len(t.states) {
+		t.currentIndex = 0
+		t.TurnNumber++
+	}
+
+	nextState := t.states[t.currentIndex]
+	t.CurrentPhase = nextState.phase
+	t.CurrentStep = nextState.step
 }
