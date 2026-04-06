@@ -85,6 +85,7 @@ func (g *Game) CheckState() {
 	} else {
 		// Stack is empty, advance to the next step/phase.
 		g.Turn.Next()
+		g.handleStepBasedActions()
 	}
 
 	// After resolution or advancing the turn, reset passes and give priority to the active player.
@@ -99,6 +100,31 @@ func (g *Game) resolve(spell *stack.Spell) {
 	spell.Card.ControllerID = spell.CasterID
 	battlefield := g.Zones["battlefield"]
 	battlefield.Add(spell.Card)
+}
+
+// handleStepBasedActions executes any state-based actions or turn-based actions for the current step.
+func (g *Game) handleStepBasedActions() {
+	switch g.Turn.CurrentStep {
+	case turn.UntapStep:
+		g.untapPermanents()
+	}
+}
+
+// untapPermanents handles the untap action for the active player.
+func (g *Game) untapPermanents() {
+	battlefield := g.Zones["battlefield"]
+	for _, card := range battlefield.Cards {
+		if card.ControllerID == g.ActivePlayer.ID && g.canUntap(card) {
+			card.Tapped = false
+		}
+	}
+}
+
+// canUntap checks if a given permanent is allowed to untap.
+// This is the hook for effects that prevent untapping (e.g., stun counters).
+func (g *Game) canUntap(c *card.Card) bool {
+	// For now, all permanents can untap.
+	return true
 }
 
 // PassPriority passes priority to the next player in turn order.

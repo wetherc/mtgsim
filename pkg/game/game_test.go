@@ -5,6 +5,7 @@ import (
 	"mtgsim/pkg/card"
 	"mtgsim/pkg/mana"
 	"mtgsim/pkg/player"
+	"mtgsim/pkg/turn"
 	"testing"
 
 	"github.com/google/uuid"
@@ -65,6 +66,47 @@ func TestPassPriority(t *testing.T) {
 	}
 }
 
+func TestUntapStep(t *testing.T) {
+	game, _ := NewGame([]int{1, 2}, 20)
+	p1 := game.Players[0]
+	p2 := game.Players[1]
+
+	cardA := newTestCard("P1 Tapped", mana.Cost{})
+	cardA.ControllerID = p1.ID
+	cardA.Tapped = true
+
+	cardB := newTestCard("P2 Tapped", mana.Cost{})
+	cardB.ControllerID = p2.ID
+	cardB.Tapped = true
+
+	cardC := newTestCard("P1 Untapped", mana.Cost{})
+	cardC.ControllerID = p1.ID
+	cardC.Tapped = false
+
+	battlefield := game.Zones["battlefield"]
+	battlefield.Add(cardA)
+	battlefield.Add(cardB)
+	battlefield.Add(cardC)
+
+	// Manually set turn to the start of P1's turn, Untap step
+	game.ActivePlayer = p1
+	game.Turn.CurrentPhase = turn.BeginningPhase
+	game.Turn.CurrentStep = turn.UntapStep
+
+	// Directly call the handler that would be called by CheckState
+	game.handleStepBasedActions()
+
+	if cardA.Tapped {
+		t.Error("Expected Player 1's tapped card to be untapped")
+	}
+	if !cardB.Tapped {
+		t.Error("Expected Player 2's tapped card to remain tapped")
+	}
+	if cardC.Tapped {
+		t.Error("Expected Player 1's untapped card to remain untapped")
+	}
+}
+
 func TestCheckState(t *testing.T) {
 	t.Run("Advance step when stack is empty and all pass", func(t *testing.T) {
 		game, _ := NewGame([]int{1, 2}, 20)
@@ -92,7 +134,7 @@ func TestCheckState(t *testing.T) {
 		game, _ := NewGame([]int{1, 2}, 20)
 		p1 := game.Players[0]
 		testCard := newTestCard("Test Spell", mana.Cost{})
-		
+
 		// P1 casts a spell
 		handZone := game.Zones[fmt.Sprintf("p%d_hand", p1.ID)]
 		handZone.Add(testCard)
@@ -169,10 +211,9 @@ func TestPriorityAndPassing(t *testing.T) {
 	}
 }
 
-
 func TestCastSpell(t *testing.T) {
 	testCard := newTestCard("Lightning Bolt", mana.Cost{Colored: [mana.NumManaTypes-1]int{mana.Red: 1}})
-	
+
 	tests := []struct {
 		name          string
 		setup         func(g *Game) *player.Player // Setup returns the player who will cast
@@ -271,7 +312,7 @@ func TestCastSpell(t *testing.T) {
 			} else if err != nil {
 				t.Errorf("CastSpell() unexpected error = %v", err)
 			}
-			
+
 			tt.validate(t, game, player)
 		})
 	}
