@@ -57,10 +57,7 @@ func (g *Game) CastSpell(player *player.Player, cardToCast *card.Card, choices *
 		return nil, errors.New("card not in hand")
 	}
 
-	// 2. Remove card from hand.
-	player.Hand = append(player.Hand[:cardIndex], player.Hand[cardIndex+1:]...)
-
-	// 3. Create a new Spell object.
+	// 2. Create a new Spell object.
 	spell := &stack.Spell{
 		Card:        cardToCast,
 		XValue:      choices.XValue,
@@ -69,14 +66,17 @@ func (g *Game) CastSpell(player *player.Player, cardToCast *card.Card, choices *
 		FinalCost:   cardToCast.ManaCost, // Initial cost, will be modified by DetermineTotalCost
 	}
 
-	// 4. Determine total cost.
+	// 3. Determine total cost.
 	spell.DetermineTotalCost()
 
-	// 5. Pay spell cost.
+	// 4. Pay spell cost.
 	err := g.PaySpellCost(player, spell, payment)
 	if err != nil {
 		return nil, err
 	}
+
+	// 5. Remove card from hand (only after successful payment).
+	player.Hand = append(player.Hand[:cardIndex], player.Hand[cardIndex+1:]...)
 
 	// 6. Put spell on stack.
 	g.Stack.Push(spell)
